@@ -21,6 +21,7 @@ to build | создать
 * There should be no empty lines after a header (`#`), but there should be an empty line between a paragraph and a header.
 * Filenames, paths, names of projects should be marked as `code`.
 * Code pieces inside text should be marked as `code`, this also applies to names of dependencies and versions.
+* Shortcuts should be marked as `code`, the separator of keys should be `+`.
 * Names of UI elements should be marked **bold**.
 * Names of technologies and features should be plain, unless there is emphasis, for the latter case they should be **bold**. Otherwise, new terms and features should be *italic*.
 * Quotes (`>`) are used to emphasise the whole paragraphs.
