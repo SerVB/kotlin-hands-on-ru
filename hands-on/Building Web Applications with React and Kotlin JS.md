@@ -17,6 +17,7 @@
 1. [Первая страница на Реакте – статичная](#step3).
 1. [React – о реакциях. Наш первый компонент](#step4).
 1. [Работаем совместно. Композиция компонентов](#step5).
+1. [Больше компонентов!](#step6).
 
 ## <a name="step1">Шаг 1. Введение</a>
 На этой практике мы рассмотрим, как использовать Kotlin/JS вместе с популярным фреймворком [React](https://reactjs.org/) для создания красивых и поддерживаемых браузерных приложений. React позволяет создавать веб приложения современно и структурированно, фокусируясь на переиспользовании компонентов и на особом способе управления состоянием приложения. Он имеет большую экосистему материалов и компонентов, созданную сообществом.
@@ -631,3 +632,153 @@ videoList {
 При необходимости перекомпилируйте проект и убедитесь, что теперь все работает логично: при выборе видео в двух списках, треугольник перепрыгивает между списками, а не дублируется. Возможно, Вы даже удивитесь, как все оказалось просто.
 
 > Состояние проекта после выполнения этого шага доступно в ветке `step-04-composing-components` [в репозитории](https://github.com/kotlin-hands-on/web-app-react-kotlin-js-gradle/tree/step-04-composing-components).
+
+## <a name="step6">Шаг 6. Больше компонентов!</a>
+
+Мы сделали один компонент отдельным и самодостаточным, а также оставили у него возможность взаимодействовать с приложением. Давайте проделаем то же самое для остальных частей приложения.
+
+### Выносим компонент видеоплеера
+
+Еще одна часть приложения, которую стоит вынести как обособленную единицу – это видеоплеер (его мы все еще заменяем заглушечной картинкой). Давайте подумаем, какие аттрибуты понадобятся для видеоплеера: это автор видео, название и ссылка. На самом деле, все эти свойства уже имеет объект типа `Video`, так что будем передавать его как аттрибут. Создадим новый компонент `VideoPlayer` в файле `VideoPlayer.kt`:
+```kotlin
+import kotlinx.css.*
+import kotlinx.html.js.onClickFunction
+import react.*
+import react.dom.*
+import styled.*
+
+external interface VideoPlayerProps : RProps {
+    var video: Video
+}
+
+@JsExport
+class VideoPlayer : RComponent<VideoPlayerProps, RState>() {
+    override fun RBuilder.render() {
+        styledDiv {
+            css {
+                position = Position.absolute
+                top = 10.px
+                right = 10.px
+            }
+            h3 {
+                +"${props.video.speaker}: ${props.video.title}"
+            }
+            img {
+                attrs {
+                    src = "https://via.placeholder.com/640x360.png?text=Video+Player+Placeholder"
+                }
+            }
+        }
+    }
+}
+
+fun RBuilder.videoPlayer(handler: VideoPlayerProps.() -> Unit): ReactElement {
+    return child(VideoPlayer::class) {
+        this.attrs(handler)
+    }
+}
+```
+
+Теперь заменим предыдущий `styledDiv` с видеоплеером (в файле `App.kt`) на только что вынесенный компонент. Будем его отрисовывать, только если выбрано какое-то видео – воспользуемся комбинацией оператора безопасного вызова и функции `let`, тогда переданный в `let` блок кода будет выполняться, если `currentVideo` не равно `null`:
+```kotlin
+state.currentVideo?.let { currentVideo ->
+    videoPlayer {
+        video = currentVideo
+    }
+}
+```
+
+### Добавляем и присоединяем кнопку
+Пока что в приложении нет способа двигать видео между списками непросмотренных и просмотренных. Для решения этой задачи добавим кнопку в `VideoPlayer`.
+
+Мы хотим двигать элементы между разными списками, а они находятся за пределами нашего компонента `VideoPlayer`. Вспомним, что в подобных случаях нам надо выносить в общего родителя логику обработки нажатия кнопки.
+
+Попробуем сделать кнопку-переключатель. При нажатии ее состояние, например, текст, будет изменяться в зависимости от того, просмотрено видео или нет. Для этого будем передавать еще и состояние кнопки.
+
+Добавим еще свойств в интерфейс `VideoPlayerProps`:
+```kotlin
+external interface VideoPlayerProps : RProps {
+    var video: Video
+    var onWatchedButtonPressed: (Video) -> Unit
+    var unwatchedVideo: Boolean
+}
+```
+
+Мы уже создали несколько компонентов, так что реализация кнопки не должна быть сложной задачей. Попробуем использовать аттрибуты для изменения CSS свойств: будем раскрашивать кнопку динамически на основе состояния видео. Добавим следующий HTML DSL в метод `render` видеоплеера, между тегами `h3` и `img`:
+```kotlin
+styledButton {
+    css {
+        display = Display.block
+        backgroundColor = if (props.unwatchedVideo) Color.lightGreen else Color.red
+    }
+    attrs {
+        onClickFunction = {
+            props.onWatchedButtonPressed(props.video)
+        }
+    }
+    if (props.unwatchedVideo) {
+        +"Mark as watched"
+    } else {
+        +"Mark as unwatched"
+    }
+}
+```
+
+### Перемещаем списки видео в состояние приложения
+Перед тем как изменить вызов `VideoPlayer`, подумаем о логике его работы.
+
+При клике на кнопку, видео должно быть либо перенесено из списка `unwatched` в `watched`, либо наоборот.
+
+То есть списки могут изменяться. Давайте тогда перенесем их в состояние приложения! Опять добавим дополнительные свойства в интерфейс:
+```kotlin
+external interface AppState : RState {
+    var currentVideo: Video?
+    var unwatchedVideos: List<Video>
+    var watchedVideos: List<Video>
+}
+```
+
+Начальные значения состояния можно задать в методе `init`. Сделаем это, переопределив метод в классе `App`:
+```kotlin
+override fun AppState.init() {
+    unwatchedVideos = listOf(
+        KotlinVideo(1, "Building and breaking things", "John Doe", "https://youtu.be/PsaFVLr8t4E"),
+        KotlinVideo(2, "The development process", "Jane Smith", "https://youtu.be/PsaFVLr8t4E"),
+        KotlinVideo(3, "The Web 7.0", "Matt Miller", "https://youtu.be/PsaFVLr8t4E")
+    )
+    watchedVideos = listOf(
+        KotlinVideo(4, "Mouseless development", "Tom Jerry", "https://youtu.be/PsaFVLr8t4E")
+    )
+}
+```
+
+Теперь можно удалить `unwatchedVideos` и `watchedVideos` из файла `Main.kt`, а в файле `Main.kt` заменить все вызовы (`un`)`watchedVideos`, которые наверняка IDE уже успела подсветить как ошибочные, на `state.`(`un`)`watchedVideos`.
+
+Наконец, подкорректируем вызов видеоплеера. Он будет выглядеть вот так:
+```kotlin
+videoPlayer {
+    video = currentVideo
+    unwatchedVideo = currentVideo in state.unwatchedVideos
+    onWatchedButtonPressed = {
+        if (video in state.unwatchedVideos) {
+            setState {
+                unwatchedVideos -= video
+                watchedVideos += video
+            }
+        } else {
+            setState {
+                watchedVideos -= video
+                unwatchedVideos += video
+            }
+        }
+    }
+}
+```
+
+Вернитесь в браузер, выберите видео, нажмите на кнопку пару раз и убедитесь, что видео перемещается между двумя списками.
+
+Таким образом, мы реализовали основную логику нашего приложения. Будет здорово, если Вы поиграетесь со стилями кнопки, и выберете тот, который Вам больше всего по душе. Можете даже попробовать вынести кнопку в отдельный переиспользуемый компонент!
+
+Время откинуться на спинку сиденья и переложить тяжелую работу на других. В следующем шаге поговорим об использовании готовых и общедоступных Реакт компонентов из Котлина.
+
+> Состояние проекта после выполнения этого шага доступно в ветке `step-05-more-components` [в репозитории](https://github.com/kotlin-hands-on/web-app-react-kotlin-js-gradle/tree/step-05-more-components).
